@@ -1,0 +1,8 @@
+
+More coverage with fewer tests
+
+Tests are important, but code is debt, and testing calcifies
+interfaces.  I'll quickly introduce a family of testing techniques
+that yield a lot of value per test: property testing, fuzzing, and
+concolic testing.  Then I'll talk about how you can start applying
+property testing right now, giving examples in Python and Rust.
