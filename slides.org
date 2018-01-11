@@ -1,8 +1,265 @@
+#+TITLE: More coverage with fewer tests
+#+DATE: 2018/01/11
+#+AUTHOR: Julian Squires <julian@cipht.net>
 
-More coverage with fewer tests
+#+OPTIONS: num:nil
+#+ICON: images/foo.png
+#+FAVICON: images/foo.png
 
-Tests are important, but code is debt, and testing calcifies
-interfaces.  I'll quickly introduce a family of testing techniques
-that yield a lot of value per test: property testing, fuzzing, and
-concolic testing.  Then I'll talk about how you can start applying
-property testing right now, giving examples in Python and Rust.
+#+WWW: https://cipht.net
+#+GITHUB: https://github.com/tokenrove
+
+# Tests are important, but code is debt, and testing calcifies
+# interfaces.  I'll quickly introduce a family of testing techniques
+# that yield a lot of value per test: property testing, fuzzing, and
+# concolic testing.  Then I'll talk about how you can start applying
+# property testing right now, giving examples in Python and Rust.
+
+* Why tests?
+:PROPERTIES:
+:ARTICLE: larger
+:END:
+
+- necessary for refactoring
+- document intent, regressions in a concrete form
+- Yuan et al., [[https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-yuan.pdf][Simple testing can prevent most critical failures]]
+  (2014).
+
+* Why not tests?
+:PROPERTIES:
+:ARTICLE: larger
+:END:
+
+- code is debt
+- [[https://www.oilshell.org/blog/2017/06/24.html%0A]["Testing calcifies interfaces"]] — Andy Chu
+- See also: Jay Fields, [[https://leanpub.com/wewut][Working Effectively with Unit Tests]] (2014).
+
+* A caveat about coverage
+
+#+BEGIN_QUOTE
+These results imply that high levels of coverage do not
+indicate that a test suite is effective. Consequently, using a
+ﬁxed coverage value as a quality target is unlikely to produce
+an effective test suite. \\
+
+      — Inozemtseva and Holmes, [[http://www.linozemtseva.com/research/2014/icse/coverage/coverage_paper.pdf][Coverage is not strongly correlated with
+        test suite effectiveness]] (2014).
+#+END_QUOTE
+
+* Three related ideas in testing
+:PROPERTIES:
+:ARTICLE: larger
+:END:
+
+- fuzz testing
+- concolic testing
+- property testing
+
+* Fuzz testing
+
+- feed random inputs to a program or service
+- look for crashes or other signs of bad behavior
+- most popular in security
+
+Came about because test suites looked like this
+
+#+BEGIN_SRC c
+    assert_int_equal(0, user_input_validate("GET /"));
+#+END_SRC
+
+instead of
+
+#+BEGIN_SRC c
+    assert_int_equal(0, user_input_validate("≠<≤¨∘~*∘⍎○⍠⍺¯○⍳∘⍸⍤Z_A⍥L⍷G\0"));
+#+END_SRC
+
+* A recurring theme
+
+- random inputs are good at breaking things
+
+#+BEGIN_QUOTE
+I get into the meanest, nastiest frame of mind that I can manage, and
+I write the cruelest test code I can think of; then I turn around and
+embed that in even nastier constructions that are almost obscene. \\
+
+        — Donald Knuth on testing adversarially
+#+END_QUOTE
+
+
+* american fuzzy lop (afl-fuzz)
+
+What if we used coverage information to guide how we generate input?
+
+#+BEGIN_CENTER
+[[./images/afl.jpg]]
+#+END_CENTER
+
+* concolic testing
+:PROPERTIES:
+:ARTICLE: larger
+:END:
+
+- *concolic* = *con-* crete + sym- *bolic*
+- concrete: fast but has trouble finding rare paths
+- symbolic: powerful but state space is huge
+
+# - really exciting, could be its own talk, but for now there's a
+#   related idea in testing you can easily use right now
+
+* property testing
+:PROPERTIES:
+:ARTICLE: larger
+:END:
+
+- QuickCheck: Haskell, later Erlang
+- basically just random inputs + assertions
+- type-directed input generation
+- shrinking
+
+* Python: several unit tests into one property test (before)
+
+#+BEGIN_SRC python
+def test_treap_constructor_traversal_is_sorted_1():
+    assert list(Treap([3,1,2,4])) == [1,2,3,4]
+
+def test_treap_constructor_traversal_is_sorted_2():
+    assert list(Treap([1,2,3])) == [1,2,3]
+
+def test_treap_of_empty_list_is_empty():
+    assert list(Treap([])) == []
+#+END_SRC
+
+* Python: several unit tests into one property test (after)
+
+#+BEGIN_SRC python
+from hypothesis import given
+import hypothesis.strategies as s
+
+@given(s.lists(s.integers()))
+def test_traversal_is_in_order(elts):
+    us, them = Treap(elts), set(elts)
+    assert list(us) == sorted(them)
+#+END_SRC
+
+* Common difficulties
+:PROPERTIES:
+:ARTICLE: larger
+:END:
+
+- How do I get started?
+- How do I come up with more properties?
+- How do I generate suitable input?
+
+* Generating non-overlapping intervals
+
+#+BEGIN_SRC python
+# >>> runskips_to_intervals([2,2,1,3])
+# [(2, 4), (5, 8)]
+def runskips_to_intervals(rs):
+    out, start = [], 0
+    for (i,r) in enumerate(rs):
+        if 0 != i % 2:
+            out.append((start, start+r))
+        start += r
+    return out
+
+interval_sets = s.lists(s.integers(min_value=1)).map(runskips_to_intervals)
+
+@given(interval_sets, interval_sets)
+def test_output_is_sorted(xs, ys):
+    zs = union(xs, ys)
+    assert sorted(zs) == zs
+#+END_SRC
+
+* Python: comparison with oracle
+
+#+BEGIN_SRC python
+operations = s.sampled_from(['insert','delete','query'])
+@given(s.lists(s.tuples(operations, s.integers())))
+def test_heap_property_preserved(ops):
+    us, them = Treap(), set()
+    for (op, key) in ops:
+        if op == 'insert':
+            us.add(key), them.add(key)
+        elif op == 'delete':
+            try:
+                us.remove(key), them.remove(key)
+            except KeyError:
+                pass
+        else:
+            assert op == 'query'
+            assert (key in us) == (key in them)
+    assert list(us) == sorted(them)
+    assert has_heap_property(us.root)
+#+END_SRC
+
+* Rust: type-driven generation
+
+#+BEGIN_SRC rust
+#[macro_use]
+extern crate quickcheck;
+
+quickcheck! {
+    fn round_trip(v: Vec<u8>) -> bool {
+        unbase64(&base64(&v)).unwrap() == v
+    }
+}
+#+END_SRC
+
+* Rust: generating sequences of operations (1/2)
+
+#+BEGIN_SRC rust
+#[derive(Copy, Clone, Debug)]
+enum SetOperation<T: FixedLengthKey> {
+    Insert(T), Remove(T), Query(T),
+}
+
+impl<T: Arbitrary + FixedLengthKey + Rand> Arbitrary for SetOperation<T> {
+    fn arbitrary<G: Gen>(g: &mut G) -> SetOperation<T> {
+        use self::SetOperation::*;
+        match g.gen_range(0,3) {
+            0 => Insert(g.gen()),
+            1 => Remove(g.gen()),
+            2 => Query(g.gen()),
+            _ => panic!()
+        }
+    }
+}
+#+END_SRC
+
+* Rust: comparison with oracle (2/2)
+
+#+BEGIN_SRC rust
+quickcheck! {
+    fn equivalence_with_set(ops: Vec<SetOperation<u16>>) -> bool {
+        use self::SetOperation::*;
+        let mut (us,them) = (FixieTrie::new(), BTreeSet::new());
+        for op in ops {
+            match op {
+                Insert(k) => { assert_eq!(us.insert(k, ()).is_none(), them.insert(k)) },
+                Remove(k) => { assert_eq!(us.remove(&k).is_some(), them.remove(&k)) },
+                Query(k) => { assert_eq!(us.contains(&k), them.contains(&k)) },
+            }
+        }
+        us.keys().zip(them.iter()).all(|(a,&b)| a == b)
+    }
+}
+#+END_SRC
+
+* Tips
+:PROPERTIES:
+:ARTICLE: larger
+:END:
+
+- migrate unit tests to property test as patterns emerge
+- "no exceptions occurred" is a starting point
+- properties can become assertions, pre/post-conditions
+- test your tests: insert an intentional bug
+- steal properties from proofs in papers
+
+* Thank You
+:PROPERTIES:
+:SLIDE: thank-you-slide segue
+:ASIDE: right
+:ARTICLE: flexbox vleft auto-fadein
+:END:
