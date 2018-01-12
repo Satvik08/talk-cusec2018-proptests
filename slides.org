@@ -127,6 +127,7 @@ What if we used coverage information to guide how we generate input?
 - start with the trivial property test: the function runs without
   exceptions on any valid input
 - write unit tests until a pattern emerges, turn into one property test
+- test at REPL → unit test → property test
 
 * Python: several unit tests into one property test (before)
 
@@ -163,6 +164,7 @@ def test_traversal_is_in_order(elts):
 - comparison against an oracle
   - library data structure
   - naive/brute-force implementation
+  - heuristics giving bounds, linear relaxation
 
 * Python: comparison with oracle
 
@@ -236,6 +238,8 @@ quickcheck! {
 }
 #+END_SRC
 
+(sorry for the cliché)
+
 * How do I generate suitable input?
 
 #+BEGIN_SRC python
@@ -262,7 +266,7 @@ def test_output_is_sorted(xs, ys):
 :ARTICLE: larger
 :END:
 
-- migrate unit tests to property test as patterns emerge
+- migrate unit tests to property tests as patterns emerge
 - "no exceptions occurred" is a starting point
 - properties can become assertions, pre/post-conditions
 - test your tests: insert an intentional bug
